@@ -1,0 +1,122 @@
+services:
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lojatecinfo_app
+    restart: unless-stopped
+    working_dir: /var/www
+    env_file: .env
+    environment:
+      DB_HOST: postgres
+      REDIS_HOST: redis
+      QUEUE_CONNECTION: redis
+    volumes:
+      - app_storage:/var/www/storage
+      - app_cache:/var/www/bootstrap/cache
+      - app_public:/var/www/public
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - lojatecinfo
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lojatecinfo_worker
+    restart: unless-stopped
+    working_dir: /var/www
+    env_file: .env
+    environment:
+      DB_HOST: postgres
+      REDIS_HOST: redis
+      QUEUE_CONNECTION: redis
+      # Deixe em branco para auto-detectar com base nos núcleos da máquina.
+      # Defina explicitamente para sobrescrever: QUEUE_READERS=2 QUEUE_WORKERS=4
+      QUEUE_READERS: ${QUEUE_READERS:-}
+      QUEUE_WORKERS: ${QUEUE_WORKERS:-}
+      QUEUE_SPOOL: ${QUEUE_SPOOL:-}
+    entrypoint: ["/usr/local/bin/entrypoint-worker.sh"]
+    volumes:
+      - app_storage:/var/www/storage
+      - app_cache:/var/www/bootstrap/cache
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - lojatecinfo
+
+  nginx:
+    image: nginx:stable-alpine
+    container_name: lojatecinfo_nginx
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - app_storage:/var/www/storage:ro
+      - app_public:/var/www/public:ro
+    depends_on:
+      - app
+    networks:
+      - lojatecinfo
+
+  postgres:
+    image: postgres:17-bookworm
+    container_name: lojatecinfo_postgres
+    restart: unless-stopped
+    entrypoint: ["/usr/local/bin/postgres-tune.sh"]
+    command: ["postgres"]
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-tecinfodb}
+      POSTGRES_USER: ${DB_USERNAME:-root}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-root}
+      POSTGRES_HOST_AUTH_METHOD: ${POSTGRES_HOST_AUTH_METHOD:-trust}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - app_storage:/var/www/storage:ro
+      - ./docker/postgres/tune.sh:/usr/local/bin/postgres-tune.sh:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-root} -d ${DB_DATABASE:-tecinfodb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - lojatecinfo
+
+  redis:
+    image: redis:7-alpine
+    container_name: lojatecinfo_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - lojatecinfo
+
+networks:
+  lojatecinfo:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  app_storage:
+  app_cache:
+  app_public:

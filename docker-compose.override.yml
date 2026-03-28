@@ -1,0 +1,27 @@
+# Override de desenvolvimento — carregado automaticamente pelo Docker Compose.
+# NÃO usar em produção. Para produção, use apenas docker-compose.yml.
+services:
+
+  app:
+    volumes:
+      - .:/var/www
+      - app_vendor:/var/www/vendor
+      - app_storage:/var/www/storage
+      - app_cache:/var/www/bootstrap/cache
+      - app_public:/var/www/public
+
+  worker:
+    volumes:
+      - .:/var/www
+      - app_vendor:/var/www/vendor
+      - app_storage:/var/www/storage
+      - app_cache:/var/www/bootstrap/cache
+
+  nginx:
+    volumes:
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - app_storage:/var/www/storage:ro
+      - app_public:/var/www/public:ro
+
+volumes:
+  app_vendor:
