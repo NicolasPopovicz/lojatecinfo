@@ -2,7 +2,7 @@
 
 Sistema web para gerenciamento de pedidos e transportadoras, com importação massiva de CSV via pipeline assíncrono de alta performance.
 
-**Stack:** Laravel 13 · PostgreSQL 17 · Redis · Nginx · PHP 8.5-FPM · Docker Compose
+**Stack:** Laravel 13 · PostgreSQL 17 · Redis · Nginx · PHP 8.5-FPM · Node.js 22 · Docker Compose
 
 ---
 
@@ -17,6 +17,7 @@ Sistema web para gerenciamento de pedidos e transportadoras, com importação ma
 - [Acompanhamento em Tempo Real (SSE)](#acompanhamento-em-tempo-real-sse)
 - [Ciclo de Status da Importação](#ciclo-de-status-da-importação)
 - [API REST](#api-rest)
+- [Servidor MCP](#servidor-mcp)
 - [Variáveis de Ambiente](#variáveis-de-ambiente)
 - [Banco de Dados](#banco-de-dados)
 - [Performance](#performance)
@@ -352,6 +353,73 @@ Cole o token gerado no header `Authorization: Bearer <token>`.
 ```
 
 Uma collection Postman com exemplos prontos está em `postman/LojaTecInfo_API.postman_collection.json`.
+
+---
+
+## Servidor MCP
+
+O diretório `mcp/` contém um servidor [MCP (Model Context Protocol)](https://modelcontextprotocol.io) em Node.js/TypeScript que permite ao Claude consultar pedidos diretamente via conversa, sem interface web.
+
+O servidor consome a API REST acima — sem acesso direto ao banco.
+
+### Tools disponíveis
+
+| Tool             | Descrição                                          |
+|------------------|----------------------------------------------------|
+| `listar_pedidos` | Lista pedidos paginados, com busca por cliente     |
+| `buscar_pedido`  | Retorna detalhes de um pedido pelo ID              |
+| `criar_pedido`   | Cadastra um novo pedido                            |
+
+### Configuração
+
+```bash
+cd mcp
+npm install
+npm run build
+
+# Variáveis de ambiente
+cp .env.example .env
+# Edite .env e preencha MCP_API_TOKEN com um token Sanctum
+```
+
+Gere o token:
+
+```bash
+php artisan tinker
+>>> App\Models\User::first()->createToken('mcp')->plainTextToken
+```
+
+### Uso com Claude Code (CLI)
+
+```bash
+claude mcp add lojatecinfo node /caminho/para/lojatecinfo/mcp/dist/index.js
+```
+
+A partir daí o Claude pode responder perguntas como:
+- *"Quais pedidos existem para o cliente João?"*
+- *"Me mostra o pedido de ID 42."*
+- *"Cria um pedido para Maria, produto Notebook, preço 3500, quantidade 1."*
+
+### Uso com Claude Desktop
+
+Edite `~/Library/Application Support/Claude/claude_desktop_config.json` (Mac) ou `%APPDATA%\Claude\` (Windows):
+
+```json
+{
+  "mcpServers": {
+    "lojatecinfo": {
+      "command": "node",
+      "args": ["/caminho/para/lojatecinfo/mcp/dist/index.js"],
+      "env": {
+        "LOJA_API_URL":  "http://localhost:8080",
+        "MCP_API_TOKEN": "seu-token-aqui"
+      }
+    }
+  }
+}
+```
+
+Um exemplo completo com opção Docker está em `mcp/claude_desktop_config.json`.
 
 ---
 
