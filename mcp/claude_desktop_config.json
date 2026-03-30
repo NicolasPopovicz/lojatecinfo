@@ -1,0 +1,26 @@
+{
+  "_comentario": "Cole o bloco 'lojatecinfo' dentro de 'mcpServers' no seu claude_desktop_config.json",
+
+  "mcpServers": {
+    "lojatecinfo": {
+
+      "_opcao_1_sem_docker": "Rode direto com Node (requer npm install && npm run build no diretório mcp/)",
+      "command": "node",
+      "args": ["/caminho/absoluto/para/lojatecinfo/mcp/dist/index.js"],
+      "env": {
+        "LOJA_API_URL":   "http://localhost:8080",
+        "LOJA_API_TOKEN": "SEU_TOKEN_SANCTUM_AQUI"
+      },
+
+      "_opcao_2_com_docker": "Alternativa: rode via Docker (requer docker compose build mcp primeiro)",
+      "_command": "docker",
+      "_args": [
+        "run", "--rm", "-i",
+        "--network", "lojatecinfo_lojatecinfo",
+        "-e", "LOJA_API_URL=http://app",
+        "-e", "LOJA_API_TOKEN=SEU_TOKEN_SANCTUM_AQUI",
+        "lojatecinfo_mcp"
+      ]
+    }
+  }
+}

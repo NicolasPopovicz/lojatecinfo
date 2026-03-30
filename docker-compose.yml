@@ -111,6 +111,30 @@ services:
     networks:
       - lojatecinfo
 
+  # ── Servidor MCP ────────────────────────────────────────────────────────────
+  # Comunicação via stdin/stdout — não fica "rodando" como serviço normal.
+  # Use para buildar a imagem: docker compose build mcp
+  # Use para rodar via CLI:    docker compose run --rm mcp
+  # Use no Claude Desktop:     ver mcp/claude_desktop_config.json
+  mcp:
+    build:
+      context: ./mcp
+    image: lojatecinfo_mcp
+    container_name: lojatecinfo_mcp
+    stdin_open: true
+    environment:
+      # URL interna do Docker — o MCP fala com o app pelo nome do serviço
+      LOJA_API_URL:   http://app
+      # Token Sanctum: gere com `php artisan tinker` e defina no .env
+      LOJA_API_TOKEN: ${MCP_API_TOKEN:-}
+    networks:
+      - lojatecinfo
+    depends_on:
+      - app
+    profiles:
+      # Não sobe com `docker compose up` — só com `--profile mcp`
+      - mcp
+
 networks:
   lojatecinfo:
     driver: bridge
