@@ -1,0 +1,166 @@
+{
+  "info": {
+    "name": "LojaTecInfo — API de Pedidos",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "SEU_TOKEN_AQUI",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Listar pedidos",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{token}}" },
+          { "key": "Accept", "value": "application/json" }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/pedidos",
+          "host": ["{{base_url}}"],
+          "path": ["api", "pedidos"]
+        },
+        "description": "Retorna pedidos paginados (50 por página)."
+      }
+    },
+    {
+      "name": "Listar pedidos — com busca",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{token}}" },
+          { "key": "Accept", "value": "application/json" }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/pedidos?busca=João&page=1",
+          "host": ["{{base_url}}"],
+          "path": ["api", "pedidos"],
+          "query": [
+            { "key": "busca", "value": "João" },
+            { "key": "page", "value": "1" }
+          ]
+        },
+        "description": "Busca pedidos pelo nome do cliente (case-insensitive)."
+      }
+    },
+    {
+      "name": "Buscar pedido por ID",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{token}}" },
+          { "key": "Accept", "value": "application/json" }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/pedidos/1",
+          "host": ["{{base_url}}"],
+          "path": ["api", "pedidos", "1"]
+        },
+        "description": "Retorna um pedido específico pelo ID. Troque o '1' pelo ID desejado."
+      }
+    },
+    {
+      "name": "Buscar pedido por ID — não encontrado",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{token}}" },
+          { "key": "Accept", "value": "application/json" }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/pedidos/999999",
+          "host": ["{{base_url}}"],
+          "path": ["api", "pedidos", "999999"]
+        },
+        "description": "Deve retornar 404."
+      }
+    },
+    {
+      "name": "Criar pedido",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{token}}" },
+          { "key": "Accept", "value": "application/json" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"descricao\": \"Notebook Dell Inspiron 15 polegadas\",\n  \"nomecliente\": \"João Silva\",\n  \"produto\": \"Notebook\",\n  \"preco\": 3499.90,\n  \"quantidade\": 1\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/pedidos",
+          "host": ["{{base_url}}"],
+          "path": ["api", "pedidos"]
+        },
+        "description": "Cria um novo pedido. Retorna 201 com o pedido criado."
+      }
+    },
+    {
+      "name": "Criar pedido — validação: campos obrigatórios",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{token}}" },
+          { "key": "Accept", "value": "application/json" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/pedidos",
+          "host": ["{{base_url}}"],
+          "path": ["api", "pedidos"]
+        },
+        "description": "Deve retornar 422 com erros de validação para todos os campos obrigatórios."
+      }
+    },
+    {
+      "name": "Criar pedido — validação: preço inválido",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{token}}" },
+          { "key": "Accept", "value": "application/json" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"descricao\": \"Produto de teste\",\n  \"nomecliente\": \"Maria\",\n  \"produto\": \"TV\",\n  \"preco\": 0,\n  \"quantidade\": 1\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/pedidos",
+          "host": ["{{base_url}}"],
+          "path": ["api", "pedidos"]
+        },
+        "description": "Deve retornar 422 — preço deve ser maior que zero."
+      }
+    },
+    {
+      "name": "Sem token — não autorizado",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Accept", "value": "application/json" }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/pedidos",
+          "host": ["{{base_url}}"],
+          "path": ["api", "pedidos"]
+        },
+        "description": "Deve retornar 401 sem o token de autorização."
+      }
+    }
+  ]
+}

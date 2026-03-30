@@ -12,12 +12,11 @@ return new class extends Migration
             $table->id();
             $table->string('arquivo_original');
             $table->string('caminho');
-            $table->string('batch_id')->nullable()->index();   // ID do Bus::batch()
             $table->unsignedBigInteger('total_linhas')->default(0);
             $table->unsignedBigInteger('linhas_processadas')->default(0);
             $table->unsignedBigInteger('linhas_com_erro')->default(0);
             $table->string('status')->default('pendente')->index();
-            $table->json('amostra_erros')->nullable();          // Primeiros 100 erros para exibição
+            $table->string('erros_resumo')->nullable();
             $table->timestamp('iniciado_em')->nullable();
             $table->timestamp('concluido_em')->nullable();
             $table->timestamps();

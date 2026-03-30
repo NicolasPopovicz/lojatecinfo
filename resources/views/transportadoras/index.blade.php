@@ -70,22 +70,29 @@
                             @if ($t->complemento) — {{ $t->complemento }} @endif
                         </td>
                         <td class="text-right">
-                            <a href="{{ route('transportadoras.show', $t) }}"
-                               class="btn btn-xs btn-info" title="Detalhes">
+                            <button type="button" class="btn btn-xs btn-info" title="Detalhes"
+                                onclick="AbrirDetalhe(
+                                    '{{ route('transportadoras.show', $t) }}',
+                                    '{{ addslashes($t->nome) }}',
+                                    '{{ route('transportadoras.edit', $t) }}'
+                                )">
                                 <i class="fas fa-eye"></i>
-                            </a>
+                            </button>
                             <a href="{{ route('transportadoras.edit', $t) }}"
                                class="btn btn-xs btn-warning" title="Editar">
                                 <i class="fas fa-edit"></i>
                             </a>
-                            <form method="POST" action="{{ route('transportadoras.destroy', $t) }}"
-                                  style="display:inline"
-                                  onsubmit="return confirm('Excluir {{ addslashes($t->nome) }}?')">
-                                @csrf @method('DELETE')
-                                <button type="submit" class="btn btn-xs btn-danger" title="Excluir">
-                                    <i class="fas fa-trash"></i>
-                                </button>
-                            </form>
+                            <button type="button" class="btn btn-xs btn-danger" title="Excluir"
+                                onclick="Confirmar.abrir({
+                                    titulo: 'Excluir Transportadora',
+                                    mensagem: 'Tem certeza que deseja excluir {{ addslashes($t->nome) }}? Esta ação não pode ser desfeita.',
+                                    action: '{{ route('transportadoras.destroy', $t) }}',
+                                    method: 'DELETE',
+                                    labelConfirmar: 'Excluir',
+                                    loadingMsg: 'Excluindo...'
+                                })">
+                                <i class="fas fa-trash"></i>
+                            </button>
                         </td>
                     </tr>
                 @empty

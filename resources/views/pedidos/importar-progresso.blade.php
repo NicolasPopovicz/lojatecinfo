@@ -17,7 +17,7 @@
         \App\Enums\StatusImportacao::Pendente    => 'secondary',
         default                                  => 'danger',
     };
-    $inseridas = max(0, $importacao->linhas_processadas - $importacao->linhas_com_erro);
+    $inseridas   = max(0, $importacao->linhas_processadas - $importacao->linhas_com_erro);
     $emAndamento = $importacao->status->estaEmAndamento();
     $preparando  = in_array($importacao->status, [
         \App\Enums\StatusImportacao::Pendente,
@@ -62,17 +62,19 @@
                 </button>
             </form>
 
-            <form id="form-cancelar" method="POST"
-                  action="{{ route('pedidos.importar.cancelar', $importacao) }}"
-                  data-no-loading
-                  onsubmit="return confirm('Cancelar e remover esta importação?\nOs registros já inseridos na base permanecerão.')"
-                  style="{{ $importacao->status->podeCancelar() ? '' : 'display:none' }}">
-                @csrf
-                @method('DELETE')
-                <button type="submit" class="btn btn-sm btn-danger">
+            <span id="form-cancelar" style="{{ $importacao->status->podeCancelar() ? '' : 'display:none' }}">
+                <button type="button" class="btn btn-sm btn-danger"
+                    onclick="Confirmar.abrir({
+                        titulo: 'Cancelar Importação',
+                        mensagem: 'Cancelar e remover esta importação? Os registros já inseridos na base permanecerão.',
+                        action: '{{ route('pedidos.importar.cancelar', $importacao) }}',
+                        method: 'DELETE',
+                        labelConfirmar: 'Cancelar Importação',
+                        loadingMsg: 'Cancelando...'
+                    })">
                     <i class="fas fa-times mr-1"></i>Cancelar
                 </button>
-            </form>
+            </span>
         </div>
     </div>
 
@@ -94,15 +96,13 @@
                 <small class="text-muted">O processamento iniciará automaticamente em seguida.</small>
             </div>
 
-            {{-- Barra indeterminada durante leitura --}}
             <div class="progress mb-3" style="height:10px; border-radius:6px">
                 <div class="progress-bar progress-bar-striped progress-bar-animated"
                      style="width:100%; background-color:#17a2b8"></div>
             </div>
 
-            {{-- Só mostra o que é confiável nessa fase --}}
             <div class="row justify-content-center">
-                <div class="col-md-4 col-6">
+                <div class="col-md-3 col-6">
                     <div class="info-box">
                         <span class="info-box-icon bg-warning elevation-1">
                             <i class="fas fa-stopwatch"></i>
@@ -115,8 +115,7 @@
                         </div>
                     </div>
                 </div>
-                @if ($importacao->total_linhas > 0)
-                <div class="col-md-4 col-6">
+                <div class="col-md-3 col-6">
                     <div class="info-box">
                         <span class="info-box-icon bg-info elevation-1">
                             <i class="fas fa-list-ol"></i>
@@ -124,19 +123,30 @@
                         <div class="info-box-content">
                             <span class="info-box-text">Linhas identificadas</span>
                             <span class="info-box-number" id="total-linhas-prep">
-                                {{ number_format($importacao->total_linhas, 0, ',', '.') }}
+                                {{ $importacao->total_linhas > 0 ? number_format($importacao->total_linhas, 0, ',', '.') : '—' }}
                             </span>
                         </div>
                     </div>
                 </div>
-                @endif
+                <div class="col-md-3 col-6">
+                    <div class="info-box">
+                        <span class="info-box-icon bg-danger elevation-1">
+                            <i class="fas fa-times-circle"></i>
+                        </span>
+                        <div class="info-box-content">
+                            <span class="info-box-text">Linhas com erro</span>
+                            <span class="info-box-number" id="linhas-erro-prep">
+                                {{ number_format($importacao->linhas_com_erro, 0, ',', '.') }}
+                            </span>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
         {{-- ── FASE PROCESSANDO / CONCLUÍDO ── --}}
         <div id="painel-processando" style="{{ $preparando ? 'display:none' : '' }}">
 
-            {{-- Barra de progresso com percentual real --}}
             <div class="progress mb-4" style="height:28px; border-radius:6px">
                 <div id="barra-progresso"
                      class="progress-bar progress-bar-striped
@@ -153,7 +163,6 @@
                 </div>
             </div>
 
-            {{-- Cards de métricas --}}
             <div class="row">
                 <div class="col-md-3 col-6">
                     <div class="info-box">
@@ -249,30 +258,14 @@
         <a href="{{ route('pedidos.importacoes') }}" class="btn btn-default ml-2">
             <i class="fas fa-history mr-1"></i>Histórico
         </a>
-    </div>
-</div>
-
-{{-- Amostra de erros --}}
-<div id="painel-erros" style="display:none">
-    <div class="card card-danger">
-        <div class="card-header">
-            <h3 class="card-title">
-                <i class="fas fa-exclamation-triangle mr-1"></i>
-                Linhas rejeitadas <small class="ml-1">(amostra dos primeiros 100 erros)</small>
-            </h3>
-        </div>
-        <div class="card-body table-responsive p-0">
-            <table class="table table-sm table-hover" id="tabela-erros">
-                <thead>
-                    <tr>
-                        <th style="width:70px">#Linha</th>
-                        <th>Dados</th>
-                        <th>Motivo</th>
-                    </tr>
-                </thead>
-                <tbody></tbody>
-            </table>
-        </div>
+        @if (!$emAndamento && $importacao->linhas_com_erro > 0)
+        <a href="{{ route('pedidos.importar.erros', $importacao) }}"
+           class="btn btn-warning ml-2" id="btn-ver-erros">
+            <i class="fas fa-exclamation-triangle mr-1"></i>
+            Ver erros de validação
+            ({{ number_format($importacao->linhas_com_erro, 0, ',', '.') }})
+        </a>
+        @endif
     </div>
 </div>
 
@@ -284,19 +277,14 @@
     const urlProgresso = '{{ route('pedidos.importar.progresso', $importacao) }}';
     const jaFinalizado = {{ $importacao->status->estaEmAndamento() ? 'false' : 'true' }};
 
-    if (jaFinalizado) {
-        @if (!$importacao->status->estaEmAndamento() && !empty($importacao->amostra_erros))
-            renderizarErros(@json($importacao->amostra_erros));
-        @endif
-        return;
-    }
+    if (jaFinalizado) return;
 
-    const barra           = document.getElementById('barra-progresso');
-    const painelPrep      = document.getElementById('painel-preparando');
-    const painelProc      = document.getElementById('painel-processando');
-    const formPausar      = document.getElementById('form-pausar');
-    const formRetomar     = document.getElementById('form-retomar');
-    const formCancelar    = document.getElementById('form-cancelar');
+    const barra        = document.getElementById('barra-progresso');
+    const painelPrep   = document.getElementById('painel-preparando');
+    const painelProc   = document.getElementById('painel-processando');
+    const formPausar   = document.getElementById('form-pausar');
+    const formRetomar  = document.getElementById('form-retomar');
+    const formCancelar = document.getElementById('form-cancelar');
 
     const source = new EventSource(urlProgresso);
 
@@ -305,41 +293,31 @@
         const ok   = data.linhas_processadas - data.linhas_com_erro;
         const prep = data.status === 'pendente' || data.status === 'lendo';
 
-        // Alterna os painéis conforme a fase
-        painelPrep.style.display  = prep ? '' : 'none';
-        painelProc.style.display  = prep ? 'none' : '';
+        painelPrep.style.display = prep ? '' : 'none';
+        painelProc.style.display = prep ? 'none' : '';
 
         document.getElementById('status-rotulo').textContent = data.status_rotulo;
         document.getElementById('concluido-em').textContent  = data.concluido_em ?? '—';
 
         if (prep) {
-            // Fase de preparação: só atualiza duração e total (se já disponível)
-            const elDurPrep = document.getElementById('duracao-prep');
-            if (elDurPrep) elDurPrep.textContent = data.duracao ?? '—';
-
-            const msgPrep = document.getElementById('msg-preparando');
-            if (msgPrep) {
-                msgPrep.textContent = data.status === 'pendente'
-                    ? 'Aguardando um leitor disponível...'
-                    : 'Lendo e distribuindo o arquivo para processamento...';
-            }
-
-            if (data.total_linhas > 0) {
-                const elTotalPrep = document.getElementById('total-linhas-prep');
-                if (elTotalPrep) elTotalPrep.textContent = fmt(data.total_linhas);
-            }
+            document.getElementById('duracao-prep').textContent = data.duracao ?? '—';
+            document.getElementById('msg-preparando').textContent = data.status === 'pendente'
+                ? 'Aguardando um leitor disponível...'
+                : 'Lendo e distribuindo o arquivo para processamento...';
+            document.getElementById('total-linhas-prep').textContent = data.total_linhas > 0
+                ? fmt(data.total_linhas) : '—';
+            document.getElementById('linhas-erro-prep').textContent = fmt(data.linhas_com_erro);
         } else {
-            // Fase de processamento: atualiza todas as métricas
-            document.getElementById('total-linhas').textContent   = fmt(data.total_linhas);
-            document.getElementById('linhas-ok').textContent      = fmt(ok);
-            document.getElementById('linhas-erro').textContent    = fmt(data.linhas_com_erro);
-            document.getElementById('duracao').textContent        = data.duracao ?? '—';
+            document.getElementById('total-linhas').textContent     = fmt(data.total_linhas);
+            document.getElementById('linhas-ok').textContent        = fmt(ok);
+            document.getElementById('linhas-erro').textContent      = fmt(data.linhas_com_erro);
+            document.getElementById('duracao').textContent          = data.duracao ?? '—';
             document.getElementById('percentual-texto').textContent = data.percentual + '%';
 
             barra.style.width = data.percentual + '%';
             barra.setAttribute('aria-valuenow', data.percentual);
-
             barra.classList.remove('bg-primary', 'bg-warning', 'bg-success', 'bg-danger');
+
             if (data.status === 'pausada') {
                 barra.classList.add('bg-warning');
                 barra.classList.remove('progress-bar-animated');
@@ -361,7 +339,16 @@
         if (data.concluido) {
             source.close();
             document.getElementById('painel-concluido').style.display = '';
-            if (data.amostra_erros?.length > 0) renderizarErros(data.amostra_erros);
+
+            if (data.linhas_com_erro > 0) {
+                const btn = document.getElementById('btn-ver-erros');
+                if (btn) {
+                    btn.style.display = '';
+                    btn.querySelector('span') && (btn.innerHTML =
+                        `<i class="fas fa-exclamation-triangle mr-1"></i>Ver erros de validação (${fmt(data.linhas_com_erro)})`
+                    );
+                }
+            }
         }
     };
 
@@ -371,23 +358,6 @@
 
     function fmt(n) {
         return Number(n).toLocaleString('pt-BR');
-    }
-
-    function renderizarErros(erros) {
-        const tbody = document.querySelector('#tabela-erros tbody');
-        erros.forEach(item => {
-            const msgs = Object.entries(item.erros)
-                .map(([campo, m]) => `<em>${campo}</em>: ${m.join(', ')}`)
-                .join('<br>');
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td class="text-center">${item.linha}</td>
-                <td><small><code>${JSON.stringify(item.dados)}</code></small></td>
-                <td><small>${msgs}</small></td>
-            `;
-            tbody.appendChild(tr);
-        });
-        document.getElementById('painel-erros').style.display = '';
     }
 })();
 </script>

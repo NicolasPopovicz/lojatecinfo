@@ -82,22 +82,29 @@
                         <td class="text-right">{{ $pedido->quantidade }}</td>
                         <td class="text-right">R$ {{ number_format($pedido->total, 2, ',', '.') }}</td>
                         <td class="text-right">
-                            <a href="{{ route('pedidos.show', $pedido) }}"
-                               class="btn btn-xs btn-info" title="Detalhes">
+                            <button type="button" class="btn btn-xs btn-info" title="Detalhes"
+                                onclick="AbrirDetalhe(
+                                    '{{ route('pedidos.show', $pedido) }}',
+                                    'Pedido \#{{ $pedido->id }}',
+                                    '{{ route('pedidos.edit', $pedido) }}'
+                                )">
                                 <i class="fas fa-eye"></i>
-                            </a>
+                            </button>
                             <a href="{{ route('pedidos.edit', $pedido) }}"
                                class="btn btn-xs btn-warning" title="Editar">
                                 <i class="fas fa-edit"></i>
                             </a>
-                            <form method="POST" action="{{ route('pedidos.destroy', $pedido) }}"
-                                  style="display:inline"
-                                  onsubmit="return confirm('Excluir este pedido?')">
-                                @csrf @method('DELETE')
-                                <button type="submit" class="btn btn-xs btn-danger" title="Excluir">
-                                    <i class="fas fa-trash"></i>
-                                </button>
-                            </form>
+                            <button type="button" class="btn btn-xs btn-danger" title="Excluir"
+                                onclick="Confirmar.abrir({
+                                    titulo: 'Excluir Pedido',
+                                    mensagem: 'Tem certeza que deseja excluir este pedido? Esta ação não pode ser desfeita.',
+                                    action: '{{ route('pedidos.destroy', $pedido) }}',
+                                    method: 'DELETE',
+                                    labelConfirmar: 'Excluir',
+                                    loadingMsg: 'Excluindo...'
+                                })">
+                                <i class="fas fa-trash"></i>
+                            </button>
                         </td>
                     </tr>
                 @empty

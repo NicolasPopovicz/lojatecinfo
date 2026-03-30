@@ -16,8 +16,9 @@ Sistema web para gerenciamento de pedidos e transportadoras, com importação ma
 - [Auto-tuning do PostgreSQL](#auto-tuning-do-postgresql)
 - [Acompanhamento em Tempo Real (SSE)](#acompanhamento-em-tempo-real-sse)
 - [Ciclo de Status da Importação](#ciclo-de-status-da-importação)
-- [Banco de Dados](#banco-de-dados)
+- [API REST](#api-rest)
 - [Variáveis de Ambiente](#variáveis-de-ambiente)
+- [Banco de Dados](#banco-de-dados)
 - [Performance](#performance)
 
 ---
@@ -85,47 +86,40 @@ Upload CSV
 [Redis: importacao:fila]  ← ID da importação
     │
     ▼
-┌─────────────────────────────────────────────────┐
-│  Estágio 1 — ImportacaoReaderDaemon             │
-│                                                 │
-│  • Lê o CSV em chunks de 5.000 linhas           │
-│  • Armazena cada chunk no Redis (TTL: 2h)       │
-│  • Enfileira chave do chunk em importacao:work  │
-│  • Incrementa total_linhas a cada chunk         │
-│  • Ao final: status → Processando               │
-│  • Empurra sentinela para importacao:spool      │
-└─────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│  Estágio 1 — ImportacaoReaderDaemon                  │
+│                                                      │
+│  • Lê o CSV em chunks de 10.000 linhas               │
+│  • Armazena cada chunk no Redis (TTL: 2h)            │
+│  • Incrementa total_linhas a cada chunk              │
+│  • Ao final: status → Processando + sentinela spool  │
+└──────────────────────────────────────────────────────┘
     │ (paralelo — N workers simultâneos)
     ▼
 [Redis: importacao:work]  ← "importacaoId:chunkN"
     │
     ▼
-┌─────────────────────────────────────────────────┐
-│  Estágio 2 — ImportacaoWorkerDaemon             │
-│                                                 │
-│  • Lê chunk do Redis                            │
-│  • Valida cada linha (campos obrigatórios,      │
-│    tipos, tamanhos)                             │
-│  • Escreve CSV de spool em:                     │
-│    storage/importacoes/spool/{id}/{chunk}.csv   │
-│  • Permissão 0644 para o postgres ler           │
-│  • Empurra metadados em importacao:spool        │
-└─────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│  Estágio 2 — ImportacaoWorkerDaemon                  │
+│                                                      │
+│  • Lê chunk do Redis e valida cada linha             │
+│  • Válidas  → spool CSV em storage/importacoes/spool │
+│  • Inválidas → JSONL em storage/importacoes/erros    │
+│  • Empurra metadados em importacao:spool             │
+└──────────────────────────────────────────────────────┘
     │
     ▼
 [Redis: importacao:spool]  ← metadados do chunk
     │
     ▼
-┌─────────────────────────────────────────────────┐
-│  Estágio 3 — ImportacaoSpoolDaemon              │
-│                                                 │
-│  • Recebe metadados do chunk                    │
-│  • Executa COPY INTO pedidos FROM 'arquivo.csv' │
-│  • Incrementa linhas_processadas e linhas_erro  │
-│  • Acumula até 100 amostras de erro (JSON)      │
-│  • Remove arquivo de spool após COPY            │
-│  • Sentinela: verifica se importação concluiu   │
-└─────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│  Estágio 3 — ImportacaoSpoolDaemon                   │
+│                                                      │
+│  • Executa COPY INTO pedidos FROM 'arquivo.csv'      │
+│  • Incrementa linhas_processadas e linhas_com_erro   │
+│  • Remove arquivo de spool após COPY                 │
+│  • Sentinela: verifica se importação concluiu        │
+└──────────────────────────────────────────────────────┘
     │
     ▼
 status → Concluido / Falhou
@@ -151,12 +145,10 @@ storage/importacoes/debug/{id}_chunk{N}_{timestamp}.sql   ← o COPY que falhou 
 
 ## Filas Redis
 
-| Fila                  | Tipo   | Produtor              | Consumidor               | Conteúdo                     |
-|-----------------------|--------|-----------------------|--------------------------|------------------------------|
-| `importacao:fila`     | List   | Controller (upload)   | ImportacaoReaderDaemon   | ID da importação (int)       |
-| `importacao:work`     | List   | ImportacaoReaderDaemon| ImportacaoWorkerDaemon   | `"importacaoId:chunkN"`      |
-| `importacao:spool`    | List   | ImportacaoWorkerDaemon| ImportacaoSpoolDaemon    | JSON com metadados do chunk  |
-| `importacao:{id}:lote:{N}` | String | ImportacaoReaderDaemon | ImportacaoWorkerDaemon | JSON das linhas (TTL 2h) |
+| Fila               | Tipo | Produtor            | Consumidor             | Conteúdo                    |
+|--------------------|------|---------------------|------------------------|-----------------------------|
+| `importacao:fila`  | List | Controller (upload) | ImportacaoReaderDaemon | ID da importação (int)      |
+| `importacao:spool` | List | ImportacaoReaderDaemon | ImportacaoSpoolDaemon | JSON com metadados do chunk |
 
 ### Mensagem sentinela
 
@@ -170,11 +162,11 @@ Sem o sentinela, haveria uma race condition: o SpoolDaemon poderia processar 100
 
 O container `worker` detecta automaticamente os CPUs disponíveis no startup e calcula o número de processos para cada daemon:
 
-| Daemon          | Fórmula               | Mínimo | Máximo |
-|-----------------|-----------------------|--------|--------|
-| `import-reader` | `CPUs / 4`            | 1      | 4      |
-| `import-worker` | `CPUs / 2`            | 2      | 8      |
-| `import-spool`  | `CPUs / 4`            | 1      | 2      |
+| Daemon          | Fórmula    | Mínimo | Máximo |
+|-----------------|------------|--------|--------|
+| `import-reader` | `CPUs / 4` | 1      | 4      |
+| `import-worker` | `CPUs / 2` | 2      | 8      |
+| `import-spool`  | `CPUs / 4` | 1      | 2      |
 
 Exemplos:
 
@@ -195,7 +187,7 @@ QUEUE_SPOOL=1
 
 ### Importações paralelas
 
-Múltiplas importações rodam em paralelo naturalmente. Como o Reader enfileira chunks um a um (não em lote), dois Readers rodando simultâneamente intercalam seus chunks na fila `importacao:work`. Os Workers e SpoolDaemons processam sem saber ou se importar de qual importação o chunk pertence.
+Múltiplas importações rodam em paralelo naturalmente. Vários Readers processam importações diferentes simultaneamente, cada um escrevendo seus chunks de spool e erros de forma independente. O SpoolDaemon consome a fila `importacao:spool` sem precisar saber a qual importação cada chunk pertence.
 
 ---
 
@@ -281,43 +273,17 @@ O cabeçalho `X-Accel-Buffering: no` é enviado para desativar o buffer do Nginx
 
 ## Banco de Dados
 
-### Tabela `pedidos`
+Schemas completos nas migrations (`database/migrations/`). Dois pontos que não ficam óbvios no código:
 
-| Coluna        | Tipo            | Notas                       |
-|---------------|-----------------|-----------------------------|
-| id            | bigserial PK    |                             |
-| descricao     | varchar(120)    |                             |
-| nomecliente   | varchar(100)    | índice GIN trigram (ILIKE)  |
-| produto       | varchar(70)     |                             |
-| preco         | decimal(10,2)   |                             |
-| quantidade    | integer         |                             |
-| total         | decimal(10,2)   |                             |
-| created_at    | timestamp       | índice B-tree               |
-| updated_at    | timestamp       |                             |
+**Índices GIN trigram** — buscas `ILIKE '%texto%'` em `pedidos.nomecliente` e campos de transportadoras usam a extensão `pg_trgm`. Sem esse índice, qualquer busca faria full scan na tabela inteira.
 
-### Tabela `importacoes`
+**`erros_resumo` (string em `importacoes`)** — caminho relativo ao `storage/` para o arquivo JSONL gerado pelos workers com os erros de validação agrupados. Cada linha do arquivo é um objeto:
 
-| Coluna              | Tipo         | Notas                              |
-|---------------------|--------------|------------------------------------|
-| id                  | bigserial PK |                                    |
-| arquivo_original    | varchar      |                                    |
-| caminho             | varchar      | path no storage local              |
-| total_linhas        | integer      | 0 durante fase Lendo               |
-| linhas_processadas  | integer      |                                    |
-| linhas_com_erro     | integer      |                                    |
-| status              | varchar      | enum StatusImportacao              |
-| amostra_erros       | json         | até 100 exemplos de erros          |
-| iniciado_em         | timestamp    |                                    |
-| concluido_em        | timestamp    |                                    |
-
-### Índices de performance
-
-O projeto usa a extensão `pg_trgm` do PostgreSQL para criar índices GIN que aceleram buscas `ILIKE '%texto%'`:
-
-```sql
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
-CREATE INDEX idx_pedidos_nomecliente_trgm ON pedidos USING GIN (nomecliente gin_trgm_ops);
+```json
+{ "parametro": "preco", "descricao": "Preço obrigatório.", "exemplo": "Pedido;João;iPhone;;2", "total": 1234 }
 ```
+
+O campo é `null` enquanto a importação não tiver erros. Quando presente, o arquivo é lido sob demanda na tela de erros e na exportação de CSV de erros.
 
 ---
 
@@ -327,14 +293,65 @@ CREATE INDEX idx_pedidos_nomecliente_trgm ON pedidos USING GIN (nomecliente gin_
 |--------------------|------------|------------------------------------------------|
 | `DB_HOST`          | postgres   | Host do PostgreSQL                             |
 | `DB_PORT`          | 5432       | Porta do PostgreSQL                            |
-| `DB_DATABASE`      | lojatecinfo| Nome do banco                                  |
-| `DB_USERNAME`      | lojatecinfo| Usuário do banco                               |
+| `DB_DATABASE`      | tecinfodb  | Nome do banco                                  |
+| `DB_USERNAME`      | root       | Usuário do banco                               |
 | `DB_PASSWORD`      | —          | Senha do banco                                 |
 | `REDIS_HOST`       | redis      | Host do Redis                                  |
 | `REDIS_PORT`       | 6379       | Porta do Redis                                 |
-| `QUEUE_READERS`    | (auto)     | Nº de processos import-reader (0 = auto)       |
-| `QUEUE_WORKERS`    | (auto)     | Nº de processos import-worker (0 = auto)       |
-| `QUEUE_SPOOL`      | (auto)     | Nº de processos import-spool (0 = auto)        |
+| `QUEUE_READERS`    | (auto)     | Nº de processos import-reader                  |
+| `QUEUE_WORKERS`    | (auto)     | Nº de processos import-worker                  |
+| `QUEUE_SPOOL`      | (auto)     | Nº de processos import-spool                   |
+
+---
+
+## API REST
+
+Além da interface web, o sistema expõe uma API REST para pedidos, autenticada via **Laravel Sanctum** (Bearer token).
+
+### Gerar token
+
+```bash
+php artisan tinker
+>>> App\Models\User::first()->createToken('postman')->plainTextToken
+```
+
+Cole o token gerado no header `Authorization: Bearer <token>`.
+
+### Endpoints
+
+| Método | Rota                  | Descrição                                  |
+|--------|-----------------------|--------------------------------------------|
+| GET    | `/api/pedidos`        | Lista pedidos paginados (50/página)        |
+| GET    | `/api/pedidos/{id}`   | Retorna um pedido pelo ID                  |
+| POST   | `/api/pedidos`        | Cria um novo pedido                        |
+
+**Parâmetros GET `/api/pedidos`:**
+
+| Parâmetro | Tipo   | Descrição                          |
+|-----------|--------|------------------------------------|
+| `busca`   | string | Filtra por nome do cliente (ILIKE) |
+| `page`    | int    | Página (padrão: 1)                 |
+
+**Body POST `/api/pedidos` (JSON):**
+
+```json
+{
+  "descricao":   "Notebook Dell Inspiron 15 polegadas",
+  "nomecliente": "João Silva",
+  "produto":     "Notebook",
+  "preco":       3499.90,
+  "quantidade":  1
+}
+```
+
+**Respostas de erro:**
+
+```json
+{ "tipo": "pedido_nao_encontrado", "mensagem": "Pedido não encontrado." }
+{ "tipo": "nao_encontrado",        "mensagem": "Registro não encontrado." }
+```
+
+Uma collection Postman com exemplos prontos está em `postman/LojaTecInfo_API.postman_collection.json`.
 
 ---
 

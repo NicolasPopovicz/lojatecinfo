@@ -3,12 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\DTO\Pedido\PedidoDTO;
+use App\DTO\Pedido\PedidoListagemDTO;
+use App\Http\Requests\Pedido\PedidoListagemRequest;
 use App\Http\Requests\Pedido\PedidoRequest;
 use App\Models\Pedido;
 use App\Services\PedidoService;
 use Illuminate\Http\RedirectResponse;
-use Illuminate\Http\Request;
-use Illuminate\Http\Response;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -16,19 +16,16 @@ class PedidosController extends Controller
 {
     public function __construct(private readonly PedidoService $servico) {}
 
-    public function index(Request $request): View
+    public function index(PedidoListagemRequest $request): View
     {
-        $busca     = $request->query('busca');
-        $porPagina = $this->porPaginaValido($request, PedidoService::OPCOES_POR_PAGINA, PedidoService::POR_PAGINA_PADRAO);
-        $pedidos   = $this->servico->listar($busca, $porPagina);
+        $dto     = PedidoListagemDTO::fromRequest($request);
+        $pedidos = $this->servico->listar($dto->busca, $dto->porPagina);
 
-        return view('pedidos.index', compact('pedidos', 'busca', 'porPagina'));
-    }
-
-    private function porPaginaValido(Request $request, array $opcoes, int $padrao): int
-    {
-        $valor = (int) $request->query('por_pagina', $padrao);
-        return in_array($valor, $opcoes, true) ? $valor : $padrao;
+        return view('pedidos.index', [
+            'pedidos'   => $pedidos,
+            'busca'     => $dto->busca,
+            'porPagina' => $dto->porPagina,
+        ]);
     }
 
     public function create(): View
@@ -47,6 +44,10 @@ class PedidosController extends Controller
 
     public function show(Pedido $pedido): View
     {
+        if (request()->ajax()) {
+            return view('pedidos._detalhe', compact('pedido'));
+        }
+
         return view('pedidos.show', compact('pedido'));
     }
 
@@ -73,40 +74,10 @@ class PedidosController extends Controller
             ->with('sucesso', 'Pedido excluído com sucesso.');
     }
 
-    public function exportarCsv(Request $request): StreamedResponse
+    public function exportarCsv(PedidoListagemRequest $request): StreamedResponse
     {
-        $busca  = $request->query('busca');
-        $cursor = $this->servico->cursorParaExportacao($busca);
-
-        $cabecalho = ['ID', 'Descrição', 'Cliente', 'Produto', 'Preço', 'Quantidade', 'Total', 'Criado em'];
-
-        $resposta = response()->stream(function () use ($cursor, $cabecalho) {
-            $saida = fopen('php://output', 'w');
-
-            // BOM UTF-8 para compatibilidade com Excel
-            fprintf($saida, chr(0xEF) . chr(0xBB) . chr(0xBF));
-            fputcsv($saida, $cabecalho, ';');
-
-            foreach ($cursor as $pedido) {
-                fputcsv($saida, [
-                    $pedido->id,
-                    $pedido->descricao,
-                    $pedido->nomecliente,
-                    $pedido->produto,
-                    number_format($pedido->preco, 2, ',', '.'),
-                    $pedido->quantidade,
-                    number_format($pedido->total, 2, ',', '.'),
-                    $pedido->created_at,
-                ], ';');
-            }
-
-            fclose($saida);
-        }, 200, [
-            'Content-Type'        => 'text/csv; charset=UTF-8',
-            'Content-Disposition' => 'attachment; filename="pedidos_' . now()->format('Ymd_His') . '.csv"',
-            'X-Accel-Buffering'   => 'no',
-        ]);
-
-        return $resposta;
+        return $this->servico->streamExportacaoCsv(
+            PedidoListagemDTO::fromRequest($request)->busca
+        );
     }
 }

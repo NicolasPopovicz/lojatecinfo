@@ -22,9 +22,13 @@ RUN composer install --no-dev --optimize-autoloader --no-interaction --prefer-di
 # ============================================================
 FROM php:8.5-fpm-bookworm
 
+ENV TZ=America/Sao_Paulo
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpng-dev libonig-dev libxml2-dev libpq-dev libzip-dev libicu-dev \
-    supervisor vim less \
+    supervisor vim less tzdata \
+    && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime \
+    && echo $TZ > /etc/timezone \
     && docker-php-ext-install \
         pdo pdo_pgsql pgsql mbstring exif pcntl bcmath gd zip intl xml \
     && pecl install redis \

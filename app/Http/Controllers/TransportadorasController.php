@@ -2,34 +2,33 @@
 
 namespace App\Http\Controllers;
 
+use App\DTO\Transportadora\BuscarCepDTO;
 use App\DTO\Transportadora\TransportadoraDTO;
+use App\DTO\Transportadora\TransportadoraListagemDTO;
+use App\Exceptions\CepNaoEncontradoException;
+use App\Http\Requests\Transportadora\BuscarCepRequest;
+use App\Http\Requests\Transportadora\TransportadoraListagemRequest;
 use App\Http\Requests\Transportadora\TransportadoraRequest;
 use App\Models\Transportadora;
 use App\Services\TransportadoraService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
-use Illuminate\Http\Request;
 use Illuminate\View\View;
 
 class TransportadorasController extends Controller
 {
     public function __construct(private readonly TransportadoraService $service) {}
 
-    public function index(Request $request): View
+    public function index(TransportadoraListagemRequest $request): View
     {
-        $busca           = $request->string('busca')->toString() ?: null;
-        $porPagina       = $this->porPaginaValido($request);
-        $transportadoras = $this->service->listar($busca, $porPagina);
+        $dto             = TransportadoraListagemDTO::fromRequest($request);
+        $transportadoras = $this->service->listar($dto->busca, $dto->porPagina);
 
-        return view('transportadoras.index', compact('transportadoras', 'busca', 'porPagina'));
-    }
-
-    private function porPaginaValido(Request $request): int
-    {
-        $valor = (int) $request->query('por_pagina', TransportadoraService::POR_PAGINA_PADRAO);
-        return in_array($valor, TransportadoraService::OPCOES_POR_PAGINA, true)
-            ? $valor
-            : TransportadoraService::POR_PAGINA_PADRAO;
+        return view('transportadoras.index', [
+            'transportadoras' => $transportadoras,
+            'busca'           => $dto->busca,
+            'porPagina'       => $dto->porPagina,
+        ]);
     }
 
     public function create(): View
@@ -47,6 +46,10 @@ class TransportadorasController extends Controller
 
     public function show(Transportadora $transportadora): View
     {
+        if (request()->ajax()) {
+            return view('transportadoras._detalhe', compact('transportadora'));
+        }
+
         return view('transportadoras.show', compact('transportadora'));
     }
 
@@ -71,17 +74,12 @@ class TransportadorasController extends Controller
             ->with('sucesso', 'Transportadora removida com sucesso.');
     }
 
-    /**
-     * Endpoint AJAX — preenche campos de endereço via CEP.
-     */
-    public function buscarCep(Request $request): JsonResponse
+    public function buscarCep(BuscarCepRequest $request): JsonResponse
     {
-        $cep = $request->string('cep')->toString();
-
-        $endereco = $this->service->buscarEnderecoPorCep($cep);
+        $endereco = $this->service->buscarEnderecoPorCep(BuscarCepDTO::fromRequest($request)->cep);
 
         if ($endereco === null) {
-            return response()->json(['erro' => 'CEP não encontrado.'], 404);
+            throw new CepNaoEncontradoException();
         }
 
         return response()->json($endereco);

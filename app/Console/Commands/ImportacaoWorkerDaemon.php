@@ -12,9 +12,9 @@ use Throwable;
 class ImportacaoWorkerDaemon extends Command
 {
     protected $signature   = 'importacao:worker';
-    protected $description = 'Daemon worker que valida chunks e grava spool CSV para carregamento';
+    protected $description = 'Daemon worker que valida chunks, grava spool CSV e JSONL de erros';
 
-    private const MAX_AMOSTRAS_ERRO = 10; // por chunk; spool daemon acumula até 100
+    private const VALORES_INVALIDOS = ['null', 'undefined', 'n/a', 'n/d', '###', '---', 'none', 'nil', 'na', 'nd'];
 
     private string $tag;
 
@@ -51,7 +51,6 @@ class ImportacaoWorkerDaemon extends Command
 
         $status = Importacao::where('id', $importacaoId)->value('status');
 
-        // Importação removida ou falhou — descarta o chunk sem processar
         if ($status === null || $status === StatusImportacao::Falhou->value) {
             Redis::del($chaveRedis);
             return;
@@ -81,17 +80,18 @@ class ImportacaoWorkerDaemon extends Command
         $inicio     = microtime(true);
         $totalChunk = count($linhas);
 
-        Log::info("{$this->tag} #{$importacaoId} chunk #{$numeroChunk} — {$totalChunk} linhas. Validando...");
-
-        [$validas, $erros] = $this->validar($linhas);
+        [$validas, $invalidas] = $this->validar($linhas);
 
         $qtdValidas = count($validas);
-        $qtdErros   = count($erros);
-
-        $arquivo = null;
+        $qtdErros   = count($invalidas);
+        $arquivo    = null;
 
         if ($qtdValidas > 0) {
             $arquivo = $this->escreverSpool($validas, $importacaoId, $numeroChunk);
+        }
+
+        if ($qtdErros > 0) {
+            $this->escreverErros($invalidas, $importacaoId, $numeroChunk);
         }
 
         Redis::rpush(ImportacaoSpoolDaemon::FILA_SPOOL, json_encode([
@@ -100,7 +100,6 @@ class ImportacaoWorkerDaemon extends Command
             'total_chunk'   => $totalChunk,
             'validas'       => $qtdValidas,
             'erros'         => $qtdErros,
-            'amostras_erro' => array_slice($erros, 0, self::MAX_AMOSTRAS_ERRO),
         ]));
 
         Redis::del($chaveRedis);
@@ -109,10 +108,99 @@ class ImportacaoWorkerDaemon extends Command
         Log::info("{$this->tag} #{$importacaoId} chunk #{$numeroChunk} — {$duracao}s | ok: {$qtdValidas} | erros: {$qtdErros}");
     }
 
-    /**
-     * Escreve as linhas válidas em CSV para carregamento via COPY.
-     * O arquivo precisa ser legível pelo processo do PostgreSQL (0644).
-     */
+    private function validar(array $linhas): array
+    {
+        $validas   = [];
+        $invalidas = [];
+        $agora     = now()->toDateTimeString();
+
+        foreach ($linhas as $dados) {
+            $erros = $this->validarLinha($dados);
+
+            if (!empty($erros)) {
+                $invalidas[] = ['dados' => $dados, 'erros' => $erros];
+                continue;
+            }
+
+            $preco      = (float) str_replace(',', '.', $dados['preco']);
+            $quantidade = (int) $dados['quantidade'];
+
+            $validas[] = [
+                $dados['descricao'],
+                $dados['nomecliente'],
+                $dados['produto'],
+                $preco,
+                $quantidade,
+                round($preco * $quantidade, 2),
+                $agora,
+                $agora,
+            ];
+        }
+
+        return [$validas, $invalidas];
+    }
+
+    private function validarLinha(array $linha): array
+    {
+        $erros = [];
+
+        $descricao = $linha['descricao'] ?? '';
+        $len       = mb_strlen($descricao);
+        if ($len < 3) {
+            $erros['descricao'] = [$len === 0 ? 'Descrição obrigatória.' : 'Descrição muito curta (mín. 3 caracteres).'];
+        } elseif ($len > 120) {
+            $erros['descricao'] = ['Descrição muito longa (máx. 120 caracteres).'];
+        }
+
+        $nomecliente = $linha['nomecliente'] ?? '';
+        $lenNome     = mb_strlen($nomecliente);
+        if ($lenNome === 0) {
+            $erros['nomecliente'] = ['Nome do cliente obrigatório.'];
+        } elseif ($lenNome < 3) {
+            $erros['nomecliente'] = ['Nome do cliente muito curto (mín. 3 caracteres).'];
+        } elseif ($lenNome > 100) {
+            $erros['nomecliente'] = ['Nome do cliente muito longo (máx. 100 caracteres).'];
+        } elseif (in_array(mb_strtolower(trim($nomecliente)), self::VALORES_INVALIDOS, true)) {
+            $erros['nomecliente'] = ['Nome do cliente inválido (valor reservado).'];
+        } elseif (!preg_match('/\p{L}{2}/u', $nomecliente)) {
+            $erros['nomecliente'] = ['Nome do cliente deve conter pelo menos duas letras consecutivas.'];
+        }
+
+        $produto = $linha['produto'] ?? '';
+        $lenProd = mb_strlen($produto);
+        if ($lenProd === 0) {
+            $erros['produto'] = ['Produto obrigatório.'];
+        } elseif ($lenProd < 2) {
+            $erros['produto'] = ['Nome do produto muito curto (mín. 2 caracteres).'];
+        } elseif ($lenProd > 70) {
+            $erros['produto'] = ['Produto muito longo (máx. 70 caracteres).'];
+        } elseif (in_array(mb_strtolower(trim($produto)), self::VALORES_INVALIDOS, true)) {
+            $erros['produto'] = ['Produto inválido (valor reservado).'];
+        } elseif (!preg_match('/\p{L}{2}/u', $produto)) {
+            $erros['produto'] = ['Produto deve conter pelo menos duas letras consecutivas.'];
+        }
+
+        $preco = $linha['preco'] ?? '';
+        if ($preco === '') {
+            $erros['preco'] = ['Preço obrigatório.'];
+        } elseif (!preg_match('/^\d+([.,]\d{1,2})?$/', $preco)) {
+            $erros['preco'] = ['Preço inválido. Use o formato 9999.99 ou 9999,99.'];
+        } elseif ((float) str_replace(',', '.', $preco) <= 0) {
+            $erros['preco'] = ['Preço deve ser maior que zero.'];
+        }
+
+        $quantidade = $linha['quantidade'] ?? '';
+        if ($quantidade === '') {
+            $erros['quantidade'] = ['Quantidade obrigatória.'];
+        } elseif (!ctype_digit((string) $quantidade)) {
+            $erros['quantidade'] = ['Quantidade inválida. Use somente números inteiros.'];
+        } elseif ((int) $quantidade < 1 || (int) $quantidade > 9999) {
+            $erros['quantidade'] = ['Quantidade deve ser um inteiro entre 1 e 9999.'];
+        }
+
+        return $erros;
+    }
+
     private function escreverSpool(array $validas, int $importacaoId, int $numeroChunk): string
     {
         $dir = storage_path("importacoes/spool/{$importacaoId}");
@@ -125,28 +213,32 @@ class ImportacaoWorkerDaemon extends Command
         $fh      = fopen($arquivo, 'w');
 
         foreach ($validas as $row) {
-            fputcsv($fh, [
-                $row['descricao'],
-                $row['nomecliente'],
-                $row['produto'],
-                $row['preco'],
-                $row['quantidade'],
-                $row['total'],
-                $row['created_at'],
-                $row['updated_at'],
-            ]);
+            fputcsv($fh, $row);
         }
 
         fclose($fh);
-        chmod($arquivo, 0644);
 
         return $arquivo;
     }
 
-    /**
-     * Quando o worker falha antes de gravar o spool, encaminha o chunk
-     * como erro total para o spool daemon atualizar os contadores.
-     */
+    private function escreverErros(array $invalidas, int $importacaoId, int $numeroChunk): void
+    {
+        $dir = storage_path("importacoes/erros/{$importacaoId}");
+
+        @mkdir($dir, 0755, true);
+
+        $fh = fopen("{$dir}/{$numeroChunk}.jsonl", 'w');
+
+        foreach ($invalidas as $item) {
+            fwrite($fh, json_encode(
+                ['dados' => $item['dados'], 'erros' => $item['erros']],
+                JSON_UNESCAPED_UNICODE
+            ) . "\n");
+        }
+
+        fclose($fh);
+    }
+
     private function encaminharFalhaChunk(int $importacaoId, int $numeroChunk): void
     {
         $chaveRedis = "importacao:{$importacaoId}:lote:{$numeroChunk}";
@@ -159,84 +251,8 @@ class ImportacaoWorkerDaemon extends Command
             'total_chunk'   => $count,
             'validas'       => 0,
             'erros'         => $count,
-            'amostras_erro' => [],
         ]));
 
         Redis::del($chaveRedis);
-    }
-
-    private function validar(array $linhas): array
-    {
-        $validas = [];
-        $erros   = [];
-        $agora   = now()->toDateTimeString();
-
-        foreach ($linhas as $idx => $linha) {
-            $e = $this->validarLinha($linha);
-
-            if (!empty($e)) {
-                $erros[] = ['linha' => $idx + 1, 'dados' => $linha, 'erros' => $e];
-                continue;
-            }
-
-            $preco      = (float) str_replace(',', '.', $linha['preco']);
-            $quantidade = (int) $linha['quantidade'];
-
-            $validas[] = [
-                'descricao'   => $linha['descricao'],
-                'nomecliente' => $linha['nomecliente'],
-                'produto'     => $linha['produto'],
-                'preco'       => $preco,
-                'quantidade'  => $quantidade,
-                'total'       => round($preco * $quantidade, 2),
-                'created_at'  => $agora,
-                'updated_at'  => $agora,
-            ];
-        }
-
-        return [$validas, $erros];
-    }
-
-    private function validarLinha(array $linha): array
-    {
-        $erros = [];
-
-        $descricao = $linha['descricao'] ?? '';
-        $len = mb_strlen($descricao);
-        if ($len < 3 || $len > 120) {
-            $erros['descricao'] = $len === 0
-                ? ['Descrição obrigatória.']
-                : ["Descrição deve ter entre 3 e 120 caracteres (atual: {$len})."];
-        }
-
-        $nomecliente = $linha['nomecliente'] ?? '';
-        if ($nomecliente === '') {
-            $erros['nomecliente'] = ['Nome do cliente obrigatório.'];
-        } elseif (mb_strlen($nomecliente) > 100) {
-            $erros['nomecliente'] = ['Nome muito longo (máx. 100 caracteres).'];
-        }
-
-        $produto = $linha['produto'] ?? '';
-        if ($produto === '') {
-            $erros['produto'] = ['Produto obrigatório.'];
-        } elseif (mb_strlen($produto) > 70) {
-            $erros['produto'] = ['Produto muito longo (máx. 70 caracteres).'];
-        }
-
-        $preco = $linha['preco'] ?? '';
-        if ($preco === '') {
-            $erros['preco'] = ['Preço obrigatório.'];
-        } elseif (!preg_match('/^\d+([.,]\d{1,2})?$/', $preco)) {
-            $erros['preco'] = ['Preço inválido. Use 9999.99 ou 9999,99.'];
-        }
-
-        $quantidade = $linha['quantidade'] ?? '';
-        if ($quantidade === '') {
-            $erros['quantidade'] = ['Quantidade obrigatória.'];
-        } elseif (!ctype_digit((string) $quantidade) || (int) $quantidade < 1 || (int) $quantidade > 9999) {
-            $erros['quantidade'] = ['Quantidade deve ser inteira entre 1 e 9999.'];
-        }
-
-        return $erros;
     }
 }

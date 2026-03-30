@@ -12,6 +12,7 @@ services:
       DB_HOST: postgres
       REDIS_HOST: redis
       QUEUE_CONNECTION: redis
+      TZ: America/Sao_Paulo
     volumes:
       - app_storage:/var/www/storage
       - app_cache:/var/www/bootstrap/cache
@@ -36,11 +37,9 @@ services:
       DB_HOST: postgres
       REDIS_HOST: redis
       QUEUE_CONNECTION: redis
-      # Deixe em branco para auto-detectar com base nos núcleos da máquina.
-      # Defina explicitamente para sobrescrever: QUEUE_READERS=2 QUEUE_WORKERS=4
-      QUEUE_READERS: ${QUEUE_READERS:-}
-      QUEUE_WORKERS: ${QUEUE_WORKERS:-}
-      QUEUE_SPOOL: ${QUEUE_SPOOL:-}
+      TZ: America/Sao_Paulo
+      # Defina no .env para sobrescrever o auto-detect.
+      # Sem definição, o entrypoint calcula com base nos núcleos disponíveis.
     entrypoint: ["/usr/local/bin/entrypoint-worker.sh"]
     volumes:
       - app_storage:/var/www/storage
@@ -79,6 +78,8 @@ services:
       POSTGRES_USER: ${DB_USERNAME:-root}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-root}
       POSTGRES_HOST_AUTH_METHOD: ${POSTGRES_HOST_AUTH_METHOD:-trust}
+      TZ: America/Sao_Paulo
+      PGTZ: America/Sao_Paulo
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - app_storage:/var/www/storage:ro

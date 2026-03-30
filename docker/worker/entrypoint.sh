@@ -5,7 +5,7 @@ set -e
 # Só aplica se a variável não foi definida explicitamente no ambiente.
 CPUS=$(nproc --all)
 
-if [ -z "${QUEUE_READERS}" ]; then
+if ! echo "${QUEUE_READERS}" | grep -qE '^[1-9][0-9]*$'; then
     # 1 reader por grupo de 4 núcleos; mínimo 1, máximo 4
     QUEUE_READERS=$(( CPUS / 4 ))
     [ "$QUEUE_READERS" -lt 1 ] && QUEUE_READERS=1
@@ -13,7 +13,7 @@ if [ -z "${QUEUE_READERS}" ]; then
     export QUEUE_READERS
 fi
 
-if [ -z "${QUEUE_WORKERS}" ]; then
+if ! echo "${QUEUE_WORKERS}" | grep -qE '^[1-9][0-9]*$'; then
     # 1 worker por grupo de 2 núcleos; mínimo 2, máximo 8
     QUEUE_WORKERS=$(( CPUS / 2 ))
     [ "$QUEUE_WORKERS" -lt 2 ] && QUEUE_WORKERS=2
@@ -21,7 +21,7 @@ if [ -z "${QUEUE_WORKERS}" ]; then
     export QUEUE_WORKERS
 fi
 
-if [ -z "${QUEUE_SPOOL}" ]; then
+if ! echo "${QUEUE_SPOOL}" | grep -qE '^[1-9][0-9]*$'; then
     # Spool daemon é I/O + DB; 1-2 processos são suficientes
     QUEUE_SPOOL=$(( CPUS / 4 ))
     [ "$QUEUE_SPOOL" -lt 1 ] && QUEUE_SPOOL=1

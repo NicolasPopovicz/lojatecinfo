@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>@yield('titulo', 'Painel') — {{ config('app.name') }}</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 
     {{-- Font Awesome 5 --}}
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
@@ -107,6 +108,10 @@
 
 </div>
 
+{{-- Modais globais --}}
+@include('partials.modal-confirmar')
+@include('partials.modal-detalhe')
+
 {{-- ===================================================================
      Overlay de carregamento global
      Exibido ao submeter qualquer form ou clicar em link[data-loading].
@@ -171,6 +176,51 @@
         if (e.persisted) Loading.hide();
     });
 })();
+
+// ── Modal de confirmação global ──────────────────────────────────────
+window.Confirmar = {
+    abrir: function (opcoes) {
+        const header = document.getElementById('confirmar-header');
+        const titulo = document.getElementById('confirmar-titulo');
+        const msg    = document.getElementById('confirmar-mensagem');
+        const method = document.getElementById('confirmar-method');
+        const form   = document.getElementById('form-confirmar');
+        const btn    = document.getElementById('confirmar-btn');
+        const tipo   = opcoes.tipo || 'danger';
+
+        titulo.textContent        = opcoes.titulo    || 'Confirmar';
+        msg.textContent           = opcoes.mensagem  || '';
+        method.value              = opcoes.method    || 'DELETE';
+        form.action               = opcoes.action    || '';
+        form.dataset.loadingMsg   = opcoes.loadingMsg || 'Aguarde...';
+        btn.textContent           = opcoes.labelConfirmar || 'Confirmar';
+        btn.className             = 'btn btn-' + tipo;
+        header.className          = 'modal-header bg-' + tipo + ' text-white';
+
+        $('#modal-confirmar').modal('show');
+    }
+};
+
+// ── Modal de detalhe (AJAX) ──────────────────────────────────────────
+window.AbrirDetalhe = function (url, titulo, editUrl) {
+    const corpo   = document.getElementById('detalhe-corpo');
+    const tituloEl = document.getElementById('detalhe-titulo');
+    const btnEditar = document.getElementById('detalhe-btn-editar');
+
+    tituloEl.textContent = titulo;
+    btnEditar.href        = editUrl || '#';
+    btnEditar.style.display = editUrl ? '' : 'none';
+    corpo.innerHTML       = '<div class="text-center py-4"><i class="fas fa-spinner fa-spin fa-2x text-muted"></i></div>';
+
+    $('#modal-detalhe').modal('show');
+
+    fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(function (r) { return r.text(); })
+        .then(function (html) { corpo.innerHTML = html; })
+        .catch(function () {
+            corpo.innerHTML = '<p class="text-danger text-center py-3">Erro ao carregar os detalhes.</p>';
+        });
+};
 </script>
 
 @stack('scripts')

@@ -9,6 +9,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         // pg_trgm é necessário para índices GIN em buscas ILIKE com % no início
         DB::statement('CREATE EXTENSION IF NOT EXISTS pg_trgm');
 
@@ -43,6 +47,10 @@ return new class extends Migration
 
     public function down(): void
     {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
         DB::statement('DROP INDEX IF EXISTS idx_pedidos_nomecliente_trgm');
         DB::statement('DROP INDEX IF EXISTS idx_transportadoras_nome_trgm');
         DB::statement('DROP INDEX IF EXISTS idx_transportadoras_cnpj_trgm');

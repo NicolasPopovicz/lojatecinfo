@@ -3,10 +3,12 @@
 namespace App\Services;
 
 use App\DTO\Pedido\PedidoDTO;
+use App\Exceptions\PedidoNaoEncontradoException;
 use App\Models\Pedido;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\LazyCollection;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class PedidoService
 {
@@ -26,7 +28,7 @@ class PedidoService
 
     public function buscarPorId(int $id): Pedido
     {
-        return $this->pedido->findOrFail($id);
+        return $this->pedido->find($id) ?? throw new PedidoNaoEncontradoException();
     }
 
     public function criar(PedidoDTO $dto): Pedido
@@ -73,5 +75,38 @@ class PedidoService
         }
 
         return $query->lazy(2000);
+    }
+
+    public function streamExportacaoCsv(?string $busca): StreamedResponse
+    {
+        $cursor    = $this->cursorParaExportacao($busca);
+        $cabecalho = ['ID', 'Descrição', 'Cliente', 'Produto', 'Preço', 'Quantidade', 'Total', 'Criado em'];
+        $nome      = 'pedidos_' . now()->format('Ymd_His') . '.csv';
+
+        return response()->stream(function () use ($cursor, $cabecalho) {
+            $saida = fopen('php://output', 'w');
+
+            fprintf($saida, chr(0xEF) . chr(0xBB) . chr(0xBF)); // BOM UTF-8
+            fputcsv($saida, $cabecalho, ';');
+
+            foreach ($cursor as $pedido) {
+                fputcsv($saida, [
+                    $pedido->id,
+                    $pedido->descricao,
+                    $pedido->nomecliente,
+                    $pedido->produto,
+                    number_format($pedido->preco, 2, ',', '.'),
+                    $pedido->quantidade,
+                    number_format($pedido->total, 2, ',', '.'),
+                    $pedido->created_at,
+                ], ';');
+            }
+
+            fclose($saida);
+        }, 200, [
+            'Content-Type'        => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => "attachment; filename=\"{$nome}\"",
+            'X-Accel-Buffering'   => 'no',
+        ]);
     }
 }

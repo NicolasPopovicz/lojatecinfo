@@ -7,8 +7,8 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 
 #[Fillable([
-    'arquivo_original', 'caminho', 'batch_id', 'total_linhas',
-    'linhas_processadas', 'linhas_com_erro', 'status', 'amostra_erros',
+    'arquivo_original', 'caminho', 'total_linhas',
+    'linhas_processadas', 'linhas_com_erro', 'status', 'erros_resumo',
     'iniciado_em', 'concluido_em'
 ])]
 class Importacao extends Model
@@ -17,10 +17,9 @@ class Importacao extends Model
     protected function casts(): array
     {
         return [
-            'status'        => StatusImportacao::class,
-            'amostra_erros' => 'array',
-            'iniciado_em'   => 'datetime',
-            'concluido_em'  => 'datetime',
+            'status'       => StatusImportacao::class,
+            'iniciado_em'  => 'datetime',
+            'concluido_em' => 'datetime',
         ];
     }
 

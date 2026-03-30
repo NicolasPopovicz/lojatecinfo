@@ -27,6 +27,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->name('pedidos.importar.acompanhar');
     Route::get('pedidos/importar/{importacao}/progresso', [ImportacaoPedidosController::class, 'progresso'])
         ->name('pedidos.importar.progresso');
+    Route::get('pedidos/importar/{importacao}/erros', [ImportacaoPedidosController::class, 'erros'])
+        ->name('pedidos.importar.erros');
+    Route::get('pedidos/importar/{importacao}/exportar-erros', [ImportacaoPedidosController::class, 'exportarErros'])
+        ->name('pedidos.importar.exportar-erros');
     Route::post('pedidos/importar/{importacao}/pausar', [ImportacaoPedidosController::class, 'pausar'])
         ->name('pedidos.importar.pausar');
     Route::post('pedidos/importar/{importacao}/retomar', [ImportacaoPedidosController::class, 'retomar'])

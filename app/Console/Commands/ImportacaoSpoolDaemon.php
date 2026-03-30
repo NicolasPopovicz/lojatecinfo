@@ -17,8 +17,6 @@ class ImportacaoSpoolDaemon extends Command
 
     public const FILA_SPOOL = 'importacao:spool';
 
-    private const MAX_AMOSTRAS_ERRO = 100;
-
     // Colunas na mesma ordem que o worker escreve no CSV
     private const COLUNAS_COPY = 'descricao, nomecliente, produto, preco, quantidade, total, created_at, updated_at';
 
@@ -56,7 +54,6 @@ class ImportacaoSpoolDaemon extends Command
         $totalChunk   = (int) $meta['total_chunk'];
         $qtdValidas   = (int) $meta['validas'];
         $qtdErros     = (int) $meta['erros'];
-        $amostrasErro = $meta['amostras_erro'] ?? [];
 
         // Sentinel do reader: total_linhas já foi gravado, só verifica conclusão
         if (!empty($meta['verificar_conclusao'])) {
@@ -82,7 +79,6 @@ class ImportacaoSpoolDaemon extends Command
                 $qtdValidas = 0;
             } else {
                 $this->executarCopy($importacaoId, $arquivo, $meta);
-                $qtdErros  += 0; // COPY bem-sucedido — erros já contabilizados pelo worker
             }
         }
 
@@ -91,36 +87,18 @@ class ImportacaoSpoolDaemon extends Command
             $this->removerDiretorioSeVazio(dirname($arquivo));
         }
 
-        // Atualiza contadores — único ponto de escrita, evita race condition
-        Importacao::where('id', $importacaoId)
-            ->increment('linhas_processadas', $totalChunk);
+        DB::table('importacoes')
+            ->where('id', $importacaoId)
+            ->update([
+                'linhas_processadas' => DB::raw("linhas_processadas + {$totalChunk}"),
+                'linhas_com_erro'    => DB::raw("linhas_com_erro + {$qtdErros}"),
+            ]);
 
-        if ($qtdErros > 0) {
-            Importacao::where('id', $importacaoId)
-                ->increment('linhas_com_erro', $qtdErros);
-
-            if (!empty($amostrasErro)) {
-                $this->registrarAmostrasErro($importacaoId, $amostrasErro);
-            }
-        }
-
-        $importacao = Importacao::find($importacaoId, ['total_linhas', 'linhas_processadas']);
-
-        if ($importacao && $importacao->total_linhas > 0) {
-            $pct = round(($importacao->linhas_processadas / $importacao->total_linhas) * 100, 1);
-            Log::info(
-                "{$this->tag} #{$importacaoId} COPY ok — {$qtdValidas} linhas inseridas | " .
-                "erros: {$qtdErros} | progresso: {$importacao->linhas_processadas}/{$importacao->total_linhas} ({$pct}%)"
-            );
-        }
+        Log::info("{$this->tag} #{$importacaoId} chunk ok — inseridas: {$qtdValidas} | erros: {$qtdErros}");
 
         $this->verificarConclusao($importacaoId);
     }
 
-    /**
-     * Executa o COPY. Em caso de falha, preserva o CSV e gera um .sql
-     * em storage/importacoes/debug/ para análise posterior.
-     */
     private function executarCopy(int $importacaoId, string $arquivo, array $meta): void
     {
         try {
@@ -132,9 +110,6 @@ class ImportacaoSpoolDaemon extends Command
         }
     }
 
-    /**
-     * Preserva o CSV falho e gera um .sql com o comando para reexecução manual.
-     */
     private function gerarArquivosDebug(int $importacaoId, string $csvOriginal, array $meta, string $erro): void
     {
         $dir = storage_path('importacoes/debug');
@@ -146,19 +121,15 @@ class ImportacaoSpoolDaemon extends Command
         $ts   = now()->format('Ymd_His');
         $base = "{$dir}/{$importacaoId}_chunk{$meta['total_chunk']}_{$ts}";
 
-        // Preserva o CSV para inspeção
-        $csvDebug = "{$base}.csv";
-        @copy($csvOriginal, $csvDebug);
+        @copy($csvOriginal, "{$base}.csv");
 
-        // Gera o .sql para reexecução manual
         $sql = implode("\n", [
             "-- Importação #{$importacaoId} — falha em " . now()->toDateTimeString(),
             "-- Erro: {$erro}",
             "-- Linhas no chunk: {$meta['total_chunk']} | válidas: {$meta['validas']} | erros de validação: {$meta['erros']}",
             "--",
-            "-- Para reexecutar (ajuste o caminho se necessário):",
             "COPY pedidos (" . self::COLUNAS_COPY . ")",
-            "FROM '{$csvDebug}'",
+            "FROM '{$base}.csv'",
             "WITH (FORMAT csv);",
         ]);
 
@@ -167,9 +138,6 @@ class ImportacaoSpoolDaemon extends Command
         Log::error("{$this->tag} Arquivos de debug gravados: {$base}.csv e {$base}.sql");
     }
 
-    /**
-     * UPDATE atômico: somente o daemon que fechar a última linha consegue mudar o status.
-     */
     private function verificarConclusao(int $importacaoId): void
     {
         $atualizado = DB::table('importacoes')
@@ -183,6 +151,8 @@ class ImportacaoSpoolDaemon extends Command
             ]);
 
         if ($atualizado) {
+            $this->agregarErrosDosDiscos($importacaoId);
+
             $importacao = Importacao::find($importacaoId);
             $inseridas  = $importacao->linhas_processadas - $importacao->linhas_com_erro;
             Log::info(
@@ -194,34 +164,88 @@ class ImportacaoSpoolDaemon extends Command
         }
     }
 
-    private function registrarAmostrasErro(int $importacaoId, array $erros): void
+    /**
+     * Lê _reader.json (erros pré-agregados do Reader) e todos os JSONL dos Workers,
+     * grava o resumo final em resumo.json e salva só o caminho no banco.
+     * Executado uma única vez na conclusão — zero overhead durante o processamento.
+     */
+    private function agregarErrosDosDiscos(int $importacaoId): void
     {
-        DB::transaction(function () use ($importacaoId, $erros): void {
-            $importacao = Importacao::where('id', $importacaoId)
-                ->lockForUpdate()
-                ->first(['id', 'amostra_erros']);
+        $dir = storage_path("importacoes/erros/{$importacaoId}");
 
-            if (!$importacao) {
-                return;
+        // Mapa interno: parametro → ['linhas' => N, 'erros' => [mensagem => [descricao, exemplo, total]]]
+        $merged = [];
+
+        // Erros pré-agregados do Reader (_reader.json já vem no formato final aninhado)
+        $readerFile = "{$dir}/_reader.json";
+        if (file_exists($readerFile)) {
+            $items = json_decode(file_get_contents($readerFile), true) ?? [];
+            foreach ($items as $item) {
+                $p = $item['parametro'];
+                $merged[$p] = ['linhas' => $item['linhas'], 'erros' => []];
+                foreach ($item['erros'] as $erro) {
+                    $merged[$p]['erros'][$erro['descricao']] = $erro;
+                }
             }
+        }
 
-            $atuais = $importacao->amostra_erros ?? [];
-            $vagas  = max(0, self::MAX_AMOSTRAS_ERRO - count($atuais));
+        // Erros individuais dos Workers (JSONL): agrupa por parametro → mensagem
+        $arquivos = is_dir($dir) ? (glob("{$dir}/*.jsonl") ?: []) : [];
+        foreach ($arquivos as $arquivo) {
+            $fh = fopen($arquivo, 'r');
+            while (($linha = fgets($fh)) !== false) {
+                $item = json_decode(trim($linha), true);
+                if (!$item) {
+                    continue;
+                }
+                foreach ($item['erros'] as $campo => $msgs) {
+                    $mensagem = is_array($msgs) ? implode(', ', $msgs) : (string) $msgs;
+                    $exemplo  = $item['dados'][$campo] ?? '';
 
-            if ($vagas === 0) {
-                return;
+                    if (!isset($merged[$campo])) {
+                        $merged[$campo] = ['linhas' => 0, 'erros' => []];
+                    }
+
+                    $merged[$campo]['linhas']++;
+
+                    if (isset($merged[$campo]['erros'][$mensagem])) {
+                        $merged[$campo]['erros'][$mensagem]['total']++;
+                    } else {
+                        $merged[$campo]['erros'][$mensagem] = [
+                            'descricao' => $mensagem,
+                            'exemplo'   => $exemplo,
+                            'total'     => 1,
+                        ];
+                    }
+                }
             }
+            fclose($fh);
+        }
 
-            $importacao->update([
-                'amostra_erros' => array_merge($atuais, array_slice($erros, 0, $vagas)),
-            ]);
-        });
+        if (empty($merged)) {
+            return;
+        }
+
+        // Converte para array de objetos no formato final
+        $resultado = [];
+        foreach ($merged as $parametro => $info) {
+            $resultado[] = [
+                'parametro' => $parametro,
+                'linhas'    => $info['linhas'],
+                'erros'     => array_values($info['erros']),
+            ];
+        }
+
+        $resumoPath = "{$dir}/resumo.json";
+        file_put_contents($resumoPath, json_encode($resultado, JSON_UNESCAPED_UNICODE));
+
+        DB::table('importacoes')
+            ->where('id', $importacaoId)
+            ->update(['erros_resumo' => "importacoes/erros/{$importacaoId}/resumo.json"]);
+
+        Log::info("{$this->tag} #{$importacaoId} — resumo.json gravado (" . count($resultado) . " parâmetros com erro).");
     }
 
-    /**
-     * Quando o COPY falha, conta todas as linhas do chunk como erros
-     * para que o progresso avance e a importação possa concluir.
-     */
     private function contabilizarFalhaSpool(array $meta): void
     {
         $importacaoId = (int) $meta['importacao_id'];
@@ -239,7 +263,7 @@ class ImportacaoSpoolDaemon extends Command
 
     private function removerDiretorioSeVazio(string $dir): void
     {
-        if (is_dir($dir) && count(scandir($dir)) === 2) { // apenas . e ..
+        if (is_dir($dir) && count(scandir($dir)) === 2) {
             @rmdir($dir);
         }
     }

@@ -23,7 +23,7 @@
                     <label for="por_pagina" class="mb-1">Registros por página</label>
                     <select id="por_pagina" name="por_pagina" class="form-control"
                             onchange="this.form.submit()">
-                        @foreach (\App\Http\Controllers\ImportacaoPedidosController::OPCOES_POR_PAGINA as $opcao)
+                        @foreach (\App\Services\ImportacaoService::OPCOES_POR_PAGINA as $opcao)
                             <option value="{{ $opcao }}" @selected($opcao === $porPagina)>
                                 {{ $opcao }}
                             </option>
@@ -68,7 +68,7 @@
                     <th>Iniciado em</th>
                     <th>Concluído em</th>
                     <th style="width:80px">Duração</th>
-                    <th style="width:100px"></th>
+                    <th style="width:140px"></th>
                 </tr>
             </thead>
             <tbody>
@@ -77,7 +77,7 @@
                     [$badgeClass, $badgeIcon] = match ($item->status) {
                         \App\Enums\StatusImportacao::Concluido   => ['badge-success', 'fa-check'],
                         \App\Enums\StatusImportacao::Processando => ['badge-primary',  'fa-sync fa-spin'],
-                        \App\Enums\StatusImportacao::Lendo       => ['badge-info',     'fa-file-alt fa-spin'],
+                        \App\Enums\StatusImportacao::Lendo       => ['badge-info',     'fa-spinner fa-spin'],
                         \App\Enums\StatusImportacao::Pausada     => ['badge-warning',  'fa-pause'],
                         \App\Enums\StatusImportacao::Pendente    => ['badge-secondary','fa-clock'],
                         \App\Enums\StatusImportacao::Cancelada   => ['badge-dark',     'fa-ban'],
@@ -126,12 +126,12 @@
                     <td>
                         @if ($item->status->estaEmAndamento())
                             <a href="{{ route('pedidos.importar.acompanhar', $item) }}"
-                               class="btn btn-xs btn-info">
+                               class="btn btn-sm btn-info">
                                 <i class="fas fa-eye mr-1"></i>Acompanhar
                             </a>
-                        @elseif ($item->status === \App\Enums\StatusImportacao::Concluido && !empty($item->amostra_erros))
-                            <a href="{{ route('pedidos.importar.acompanhar', $item) }}"
-                               class="btn btn-xs btn-warning">
+                        @elseif ($item->status === \App\Enums\StatusImportacao::Concluido && $item->erros_resumo)
+                            <a href="{{ route('pedidos.importar.erros', $item) }}"
+                               class="btn btn-sm btn-warning">
                                 <i class="fas fa-exclamation-triangle mr-1"></i>Ver Erros
                             </a>
                         @endif

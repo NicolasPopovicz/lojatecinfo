@@ -7,8 +7,9 @@
 
     {{-- Logo / nome do app --}}
     <a href="{{ route('dashboard') }}" class="brand-link">
-        <i class="fas fa-store brand-image img-circle elevation-3"
-           style="font-size:1.4rem;line-height:2rem;text-align:center;opacity:.8"></i>
+        <img src="/favicon.svg" alt="{{ config('app.name') }}"
+             class="brand-image elevation-3"
+             style="width:33px;height:33px;border-radius:8px;opacity:.9">
         <span class="brand-text font-weight-light">{{ config('app.name') }}</span>
     </a>
 

@@ -24,7 +24,7 @@
                         <label for="arquivo">Arquivo CSV <span class="text-danger">*</span></label>
                         <div class="custom-file">
                             <input type="file" class="custom-file-input @error('arquivo') is-invalid @enderror"
-                                   id="arquivo" name="arquivo" accept=".csv" required>
+                                   id="arquivo" name="arquivo" accept=".csv,.txt" required>
                             <label class="custom-file-label" for="arquivo">Escolher arquivo...</label>
                         </div>
                         @error('arquivo')
@@ -57,7 +57,7 @@ Compra presencial;Maria Costa;MacBook Pro M3;14999,00;1</code></pre>
                     <li><strong>Total</strong> é calculado automaticamente (preço × quantidade).</li>
                     <li>Preço aceita ponto (<code>9999.90</code>) ou vírgula (<code>9999,90</code>) como decimal.</li>
                     <li>Linhas com erro são ignoradas — as válidas são importadas normalmente.</li>
-                    <li>Tamanho máximo: <strong>256 MB</strong>.</li>
+                    <li>Tamanho máximo: <strong>{{ ini_get('upload_max_filesize') }}</strong>.</li>
                 </ul>
             </div>
         </div>
