@@ -17,7 +17,7 @@ class ImportacaoHistoricoRequest extends FormRequest
         $opcoes = implode(',', ImportacaoService::OPCOES_POR_PAGINA);
 
         return [
-            'busca'     => 'nullable|string|max:255',
+            'busca'      => 'nullable|string|max:255',
             'por_pagina' => "nullable|integer|in:{$opcoes}",
         ];
     }

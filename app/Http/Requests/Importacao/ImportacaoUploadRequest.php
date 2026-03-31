@@ -14,7 +14,7 @@ class ImportacaoUploadRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'arquivo' => 'required|file|mimes:csv,txt|max:1048576',
+            'arquivo' => ['required', 'file', 'mimes:csv,txt', 'max:' . $this->maxKb()],
         ];
     }
 
@@ -26,5 +26,20 @@ class ImportacaoUploadRequest extends FormRequest
             'arquivo.mimes'    => 'O arquivo deve estar no formato CSV ou TXT.',
             'arquivo.max'      => 'O arquivo não pode ultrapassar ' . ini_get('upload_max_filesize') . '.',
         ];
+    }
+
+    /** Converte upload_max_filesize do php.ini para KB (unidade que o Laravel espera). */
+    private function maxKb(): int
+    {
+        $raw  = ini_get('upload_max_filesize');
+        $unit = strtoupper(substr($raw, -1));
+        $val  = (int) $raw;
+
+        return match ($unit) {
+            'G'     => $val * 1024 * 1024,
+            'M'     => $val * 1024,
+            'K'     => $val,
+            default => (int) ceil($val / 1024),
+        };
     }
 }

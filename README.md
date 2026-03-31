@@ -135,12 +135,22 @@ status → Concluido / Falhou
 
 ### Tratamento de falhas
 
-Se um `COPY` falhar, dois arquivos de diagnóstico são gerados automaticamente:
+Cada daemon trata falhas de forma independente:
+
+| Daemon | O que acontece ao falhar |
+|--------|--------------------------|
+| Reader | Status → `Falhou` + `Log::error()` com a mensagem da exceção |
+| Worker | Status → `Falhou` + `Log::error()` com o número do chunk |
+| Spool  | Se o `COPY` lançar exceção, grava arquivos de diagnóstico e relança |
+
+Quando o SpoolDaemon falha num `COPY`, tenta gravar em `storage/importacoes/debug/`:
 
 ```
-storage/importacoes/debug/{id}_chunk{N}_{timestamp}.csv   ← dados que falharam
-storage/importacoes/debug/{id}_chunk{N}_{timestamp}.sql   ← o COPY que falhou + mensagem de erro
+{id}_chunk{N}_{timestamp}.sql   ← comando COPY + mensagem de erro
+{id}_chunk{N}_{timestamp}.csv   ← cópia do spool que falhou (se ainda existir)
 ```
+
+O `.csv` pode não ser gerado caso o arquivo de spool já tenha sido removido antes da falha. Todos os erros aparecem também em `storage/logs/laravel.log`.
 
 ---
 

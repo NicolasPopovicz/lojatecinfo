@@ -4,6 +4,9 @@
 .vscode
 node_modules
 vendor
+mcp/
+tests/
+postman/
 storage/logs/*.log
 storage/framework/cache/*
 storage/framework/sessions/*

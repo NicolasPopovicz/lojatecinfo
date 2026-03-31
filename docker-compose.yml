@@ -126,7 +126,7 @@ services:
       # URL interna do Docker — o MCP fala com o app pelo nome do serviço
       LOJA_API_URL:   http://app
       # Token Sanctum: gere com `php artisan tinker` e defina no .env
-      LOJA_API_TOKEN: ${MCP_API_TOKEN:-}
+      MCP_API_TOKEN: ${MCP_API_TOKEN:-}
     networks:
       - lojatecinfo
     depends_on:

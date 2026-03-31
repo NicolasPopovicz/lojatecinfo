@@ -26,7 +26,7 @@ ENV TZ=America/Sao_Paulo
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpng-dev libonig-dev libxml2-dev libpq-dev libzip-dev libicu-dev \
-    supervisor vim less tzdata \
+    supervisor tzdata \
     && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime \
     && echo $TZ > /etc/timezone \
     && docker-php-ext-install \
@@ -34,8 +34,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && pecl install redis \
     && docker-php-ext-enable redis \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
-
-COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
 WORKDIR /var/www
 COPY --from=builder --chown=www-data:www-data /var/www .
